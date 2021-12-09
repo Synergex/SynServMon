@@ -1,0 +1,20 @@
+import System
+import System.Collections.Generic
+import System.ServiceProcess
+import System.Text
+
+namespace SynServMon
+
+    ;;; <summary>
+    ;;; The main entry point for the application.
+    ;;; </summary>
+    {STAThread}
+    main 
+
+    proc
+        data ServicesToRun, [#]@ServiceBase
+        ServicesToRun = new ServiceBase[#] {new SynServMon()}
+        ServiceBase.Run(ServicesToRun)
+    end
+
+endnamespace

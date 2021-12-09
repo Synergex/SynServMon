@@ -1,0 +1,45 @@
+﻿
+.array 0
+namespace SynServMon
+
+	public partial class ProjectInstaller extends System.Configuration.Install.Installer
+
+		private serviceProcessInstaller1, @System.ServiceProcess.ServiceProcessInstaller
+		private SynServMon, @System.ServiceProcess.ServiceInstaller
+		private components, @System.ComponentModel.IContainer
+
+		private method InitializeComponent, void
+			endparams
+		proc
+			this.serviceProcessInstaller1 = new System.ServiceProcess.ServiceProcessInstaller()
+			this.SynServMon = new System.ServiceProcess.ServiceInstaller()
+			;; 
+			;; serviceProcessInstaller1
+			;; 
+			this.serviceProcessInstaller1.Account = System.ServiceProcess.ServiceAccount.LocalSystem
+			this.serviceProcessInstaller1.Password = ^null
+			this.serviceProcessInstaller1.Username = ^null
+			;; 
+			;; SynServMon
+			;; 
+			this.SynServMon.Description = "Synergy Service Monitor - wrapper for the synxfpng utility to monitor a Synergy service.  Sends an email when service is not running or host is not known."
+			this.SynServMon.DisplayName = "SynServMon"
+			this.SynServMon.ServiceName = "SynServMon"
+			this.SynServMon.StartType = System.ServiceProcess.ServiceStartMode.Automatic
+			;; 
+			;; ProjectInstaller
+			;; 
+			this.Installers.AddRange(new System.Configuration.Install.Installer[#] {this.serviceProcessInstaller1, this.SynServMon})
+		endmethod
+
+		protected override method Dispose, void
+			disposing, System.Boolean 
+			endparams
+		proc
+			if (disposing && (components != ^null))
+				components.Dispose()
+			parent.Dispose(disposing)
+		endmethod
+	endclass
+endnamespace
+

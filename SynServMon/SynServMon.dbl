@@ -1,0 +1,237 @@
+import System
+import System.Collections.Generic
+import System.ComponentModel
+import System.Data
+import System.Diagnostics
+import System.ServiceProcess
+import System.Text
+
+import System.Net.Mail
+import System.Collections
+
+namespace SynServMon
+
+	public partial class SynServMon extends ServiceBase
+.DEFINE D_SLEEPTIME				60          ;Time to wait in seconds in-between checking on service
+.define D_DATETIME_FORMAT		"ZZZZ/ZZ/ZZ ZZ:ZZ.ZZ.ZZZZZZ"
+.define D_3NL					Environment.NewLine + Environment.NewLine +Environment.NewLine
+.define D_SENTBY				"Email sent by synsrvmon utility"
+
+		MyEventLog	 ,@System.Diagnostics.EventLog
+		message      ,string				;Email message
+		subject      ,string				;Email subject
+		dt_d         ,a 26					;Variable to hold formated %datetime
+		command		,@ArrayList  ;Array of synxfpng commands to run in an open pipe
+		    
+		public method SynServMon
+			endparams
+		proc
+			this.InitializeComponent()
+
+			MyEventLog = new System.Diagnostics.EventLog() 
+			
+			data event_source ,string ,"SynServMon"
+
+			;Check to make sure there isn't another event with the SynergyService name
+			if (!System.Diagnostics.EventLog.SourceExists(event_source))
+			begin
+				;By passing an empty string for the Log parameter the event will be logged as an Application event
+				System.Diagnostics.EventLog.CreateEventSource(event_source,string.Empty)
+			end
+
+			MyEventLog.Source = event_source
+		endmethod
+
+		protected override method OnStart, void
+			args, [#]string 
+			endparams
+		proc
+			;Below code will create a timer which calls the RunSynxfpng method every 60 seconds
+			data timer ,@System.Timers.Timer ,new System.Timers.Timer()
+
+			timer.Interval = D_SLEEPTIME * 1000										;When D_SLEEPTIME is 60 then 60 * 1000 milliseconds = 60 seconds
+			timer.Elapsed += new System.Timers.ElapsedEventHandler(this.RunSynxfpng)
+			timer.Start()
+
+			subject = "Synergy Service Monitor utility started"						;Customize email subject line here
+
+			MyEventLog.WriteEntry(subject)
+                      
+			dt_d = ^d(%datetime) ,D_DATETIME_FORMAT
+			message = dt_d  + " --> Synergy Service Monitor utility started"		;Customize email message here
+                      
+			message += D_3NL + D_SENTBY
+                      
+			SynServMon.SentEmail(subject, message)
+
+			try
+			begin
+				ReadCMDFile(command)
+			end
+			catch(excpt)
+			begin
+				MyEventLog.WriteEntry("ERROR occured in routine RunSynxfpng calling ReadCMDFile! - " +
+				&	D_3NL + excpt.Message)
+				stop
+			end
+			endtry
+			
+			mreturn
+		endmethod
+
+		protected override method OnStop, void
+			endparams
+		proc
+			subject = "Synergy Service Monitor utility stopped"						;Customize email subject line here
+
+			MyEventLog.WriteEntry(subject)
+                      
+			dt_d = ^d(%datetime) ,D_DATETIME_FORMAT
+			message = dt_d  + " --> Synergy Service Monitor utility stopped" 		;Customize email message here
+                      
+			message += D_3NL + D_SENTBY
+                      
+			SynServMon.SentEmail(subject, message)
+			mreturn
+		endmethod
+
+		public method RunSynxfpng		,void
+			sender ,@object
+			args ,@System.Timers.ElapsedEventArgs
+			endparams
+		proc
+			data pchn			,int        ;Channel to run synxfpng command in pipe
+			data count			,int        ;Loop counter to run commands
+			data server			,string     ;name of server running Synergy service
+			data port			,string     ;port service is running
+			data datarea		,a 500      ;data area to capture output of synxfpng
+			data cmd			,@a
+			data pos			,int
+
+			data counter		,int
+			
+			if command.Count
+			begin
+				try
+				begin
+					foreach cmd in command
+					BEGIN
+						if ! ((string)cmd) == string.Empty  
+						begin
+							pos=%instr(1,(a)cmd,"|")
+							server = (a)cmd(1:pos-1)
+							port   = cmd(pos+1,%trimz((a)cmd))
+						end
+
+						server.Replace(" ",string.Empty)
+						port.Replace  (" ",string.Empty)
+
+						open(pchn = 0, I, "|synxfpng -i 1 -p " + port + " " + server)
+						repeat
+						begin
+							reads(pchn, datarea, eof)
+							;Test if service is running on port
+							if %instr(1,datarea,"No service found on port " + port)
+							begin
+								subject = "Service down on " + server + "!!!"				;Customize email subject line here
+                      
+								dt_d = ^d(%datetime) ,D_DATETIME_FORMAT
+
+								message = dt_d  + " --> Service on server " + server + 		;Customize email message here
+								&	" on port " + port + " NOT RUNNING!!!"
+                      
+								message += D_3NL + D_SENTBY
+                      
+								SynServMon.SentEmail(subject, message)
+							end
+							;Test if host value is known
+							if %instr(1,datarea,"No such host is known")
+							begin
+								subject = "Unknown host: " + server + "!!!"					;Customize email subject line here
+                      
+								dt_d = ^d(%datetime) ,D_DATETIME_FORMAT
+
+								message = dt_d  + " --> Server - "+ server +  " unknown"		;Customize email message here
+                      
+								message += D_3NL + D_SENTBY
+                      
+								SynServMon.SentEmail(subject, message)
+							end
+						end
+		eof,
+						close pchn
+					END
+				end 
+				catch(excpt)
+				begin
+					MyEventLog.WriteEntry("ERROR occured in routine RunSynxfpng run synxfpng repeat loop! - " +
+					&	D_3NL + excpt.Message+ D_3NL + "cmd=" + (string)cmd + Environment.NewLine + "server=" + 
+					&	server + Environment.NewLine + "port=" + port)
+					stop
+				end
+				endtry
+			end		
+			mreturn
+		endmethod
+
+
+
+		public static method SentEmail, void
+			a_subject           ,string
+			a_message           ,string
+			endparams
+		proc
+			data exchange_server,string		    ,"EXCH2016.synergex.loc"							;Set exchange server value here
+			data email_from     ,string         ,"DoNotReply@srvmon.utl"		;Set email address message sent from here
+			data email_to       ,string         ,"jerry.fawcett@synergex.com"						;Set email address to send notificatoion message
+                
+                
+			data client         ,@SmtpClient    ,new SmtpClient(exchange_server)
+			data from           ,@MailAddress   ,new MailAddress(email_from)
+			data to             ,@MailAddress   ,new MailAddress(email_to)
+			data message        ,@MailMessage   ,new MailMessage(from, to)
+                
+			message.Subject = a_subject 
+			message.Body    = a_message
+                
+			client.Send(message)
+			message.Dispose()
+			mreturn
+		endmethod
+
+		public method ReadCMDFile	,void
+			req inout a_commands					,@ArrayList
+			endparams
+		proc
+			data numcmds			,int
+			data fchn				,int
+			data SynServMonCMDLog	,a 255
+			data servport			,a 100
+			data lngth				,int
+
+			getlog("SSM", SynServMonCMDLog, lngth)
+
+			a_commands = new ArrayList()
+
+			try
+			begin
+				open(fchn=0,I,"SSM:synsrvmon.ddf")
+				repeat
+				begin
+					reads(fchn,servport, eof)
+					if %instr(1,servport,"|")
+						a_commands.Add((@a)(%atrim(servport)))
+				end
+		eof,
+			end
+			catch(excpt)
+			begin
+				MyEventLog.WriteEntry("ERROR occured in routine ReadCMDFile! - " +
+				&	D_3NL + excpt.Message + D_3NL + "SSM set to: " + SynServMonCMDLog)
+				stop
+			end
+			endtry
+			mreturn 
+		endmethod
+	endclass
+endnamespace
